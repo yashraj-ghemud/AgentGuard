@@ -34,7 +34,7 @@ services:
       - key: ENCRYPTION_KEY
         generateValue: true
       - key: CORS_ORIGINS
-        value: https://agentguard-frontend.onrender.com
+        value: '["https://agentguard-frontend.onrender.com"]'
       - key: CORS_ALLOW_CREDENTIALS
         value: "true"
       - key: LOG_LEVEL
