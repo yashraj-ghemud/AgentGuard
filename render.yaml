@@ -55,7 +55,7 @@ services:
     healthCheckPath: /
     envVars:
       - key: NEXT_PUBLIC_API_URL
-        value: https://agentguard-backend.onrender.com
+        value: https://agentguard-backend-y9fq.onrender.com
 
   - type: keyvalue
     name: agentguard-redis
