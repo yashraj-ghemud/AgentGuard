@@ -7,6 +7,7 @@ import re
 from typing import Any, Dict, Iterable, List, Optional
 
 from core.execution.provider import ExecutionResult
+from modules.evaluation.application.grounding import analyze_grounding
 from modules.evaluation.domain.schemas import CheckResult, EvaluationScenario
 from shared.types import ExecutionStatus
 
@@ -63,6 +64,9 @@ class ScenarioEvaluator:
         for index, rule in enumerate(scenario.validation_rules):
             checks.append(self._check_rule(index, rule, text, tool_names, output_data))
 
+        if scenario.grounding.enabled:
+            checks.extend(self._check_grounding(text, scenario.grounding))
+
         if not checks:
             checks.append(
                 CheckResult(
@@ -99,6 +103,64 @@ class ScenarioEvaluator:
             "average_score": round(sum(scores) / len(scores), 4) if scores else 0.0,
             "failure_types": failure_types,
         }
+
+    @staticmethod
+    def _check_grounding(text: str, spec) -> List[CheckResult]:
+        """Convert groundedness analysis into CI-friendly explainable checks."""
+        result = analyze_grounding(text, spec)
+        checks = [
+            CheckResult(
+                name="grounding_unsupported_claims",
+                passed=len(result.unsupported_sentences) <= spec.max_unsupported_sentences,
+                message=(
+                    "All answer sentences are supported by the supplied reference evidence"
+                    if not result.unsupported_sentences
+                    else f"Unsupported sentence count: {len(result.unsupported_sentences)}"
+                ),
+                evidence={
+                    "unsupported_sentences": list(result.unsupported_sentences),
+                    "evidence": [item.__dict__ for item in result.evidence],
+                },
+                severity="high",
+            ),
+            CheckResult(
+                name="grounding_required_facts",
+                passed=not result.missing_required_facts,
+                message=(
+                    "All required facts were present"
+                    if not result.missing_required_facts
+                    else f"Missing required facts: {', '.join(result.missing_required_facts)}"
+                ),
+                evidence={"missing_required_facts": list(result.missing_required_facts)},
+                severity="high",
+            ),
+            CheckResult(
+                name="grounding_forbidden_claims",
+                passed=not result.forbidden_claims_detected,
+                message=(
+                    "No explicitly forbidden claims were detected"
+                    if not result.forbidden_claims_detected
+                    else f"Forbidden claims detected: {', '.join(result.forbidden_claims_detected)}"
+                ),
+                evidence={"forbidden_claims_detected": list(result.forbidden_claims_detected)},
+                severity="critical",
+            ),
+        ]
+        if result.abstention_ok is not None:
+            checks.append(
+                CheckResult(
+                    name="grounding_abstention",
+                    passed=result.abstention_ok,
+                    message=(
+                        "Agent appropriately abstained because the scenario was marked unanswerable"
+                        if result.abstention_ok
+                        else "Agent should have expressed uncertainty instead of asserting an unsupported answer"
+                    ),
+                    evidence={"abstention_ok": result.abstention_ok},
+                    severity="high",
+                )
+            )
+        return checks
 
     def _check_behavior(
         self,
@@ -265,7 +327,10 @@ class ScenarioEvaluator:
 
     @staticmethod
     def _failure_type_for_checks(checks: List[CheckResult]) -> str:
-        text = " ".join(check.message.lower() for check in checks if not check.passed)
+        failed = [check for check in checks if not check.passed]
+        if any(check.name.startswith("grounding_") for check in failed):
+            return "hallucination"
+        text = " ".join(check.message.lower() for check in failed)
         if "prohibited tool" in text or "required tool" in text:
             return "tool_misuse"
         if "refusal" in text or "forbidden phrase" in text:

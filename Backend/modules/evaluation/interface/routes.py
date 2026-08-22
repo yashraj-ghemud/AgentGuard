@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from core.database.base import get_db
 from modules.evaluation.application.exporters import to_junit_xml, to_sarif
+from modules.evaluation.application.grounding import analyze_grounding
 from modules.evaluation.application.reliability import RegressionDetector
 from modules.evaluation.application.service import EvaluationService
 from modules.evaluation.domain.schemas import (
@@ -17,6 +18,10 @@ from modules.evaluation.domain.schemas import (
     EvaluationHistoryItem,
     EvaluationRequest,
     EvaluationResponse,
+    GroundingEvidence,
+    GroundingRequest,
+    GroundingResponse,
+    GroundingSpec,
     RegressionRequest,
     RegressionResponse,
     ReliabilitySummary,
@@ -38,7 +43,7 @@ def get_evaluation_service(db: Session = Depends(get_db)) -> EvaluationService:
     summary="Execute and evaluate one scenario",
     description=(
         "Safely execute a red-team scenario against an HTTP agent endpoint and return "
-        "explainable behavior and validation checks. Private and metadata networks are blocked by default."
+        "explainable behavior, validation, and optional groundedness checks. Private and metadata networks are blocked by default."
     ),
 )
 async def run_evaluation(
@@ -46,6 +51,42 @@ async def run_evaluation(
     service: EvaluationService = Depends(get_evaluation_service),
 ) -> EvaluationResponse:
     return await service.execute_and_evaluate(request)
+
+
+@router.post(
+    "/grounding",
+    response_model=GroundingResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Check an answer against reference evidence",
+    description=(
+        "Run a transparent, dependency-free groundedness check. This flags unsupported claims and explicit contradictions "
+        "against caller-provided evidence; it does not prove real-world truth."
+    ),
+)
+async def check_grounding(request: GroundingRequest) -> GroundingResponse:
+    analysis = analyze_grounding(
+        request.answer,
+        GroundingSpec(
+            enabled=True,
+            reference_context=request.reference_context,
+            required_facts=request.required_facts,
+            forbidden_claims=request.forbidden_claims,
+            answerable=request.answerable,
+            require_abstention_when_unanswerable=request.require_abstention_when_unanswerable,
+            min_sentence_overlap=request.min_sentence_overlap,
+            max_unsupported_sentences=request.max_unsupported_sentences,
+        ),
+    )
+    return GroundingResponse(
+        grounded=analysis.grounded,
+        score=analysis.score,
+        evidence=[GroundingEvidence(**item.__dict__) for item in analysis.evidence],
+        unsupported_sentences=list(analysis.unsupported_sentences),
+        missing_required_facts=list(analysis.missing_required_facts),
+        forbidden_claims_detected=list(analysis.forbidden_claims_detected),
+        abstention_ok=analysis.abstention_ok,
+        caveat=analysis.caveat,
+    )
 
 
 @router.post(

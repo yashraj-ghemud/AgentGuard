@@ -7,6 +7,18 @@ export interface EvaluationScenario {
   expected_behavior?: Record<string, unknown>[];
   validation_rules?: Record<string, unknown>[];
   tags?: string[];
+  grounding?: GroundingSpec;
+}
+
+export interface GroundingSpec {
+  enabled: boolean;
+  reference_context: string;
+  required_facts?: string[];
+  forbidden_claims?: string[];
+  answerable?: boolean;
+  require_abstention_when_unanswerable?: boolean;
+  min_sentence_overlap?: number;
+  max_unsupported_sentences?: number;
 }
 
 export interface EvaluationRequest {
@@ -58,6 +70,35 @@ export interface EvaluationBatchResponse {
   summary: ReliabilitySummary;
 }
 
+export interface GroundingRequest {
+  answer: string;
+  reference_context: string;
+  required_facts?: string[];
+  forbidden_claims?: string[];
+  answerable?: boolean;
+  require_abstention_when_unanswerable?: boolean;
+  min_sentence_overlap?: number;
+  max_unsupported_sentences?: number;
+}
+
+export interface GroundingEvidence {
+  claim: string;
+  evidence?: string | null;
+  overlap: number;
+  supported: boolean;
+}
+
+export interface GroundingResponse {
+  grounded: boolean;
+  score: number;
+  evidence: GroundingEvidence[];
+  unsupported_sentences: string[];
+  missing_required_facts: string[];
+  forbidden_claims_detected: string[];
+  abstention_ok?: boolean | null;
+  caveat: string;
+}
+
 export interface EvaluationHistoryItem {
   id: string;
   execution_id: string;
@@ -79,6 +120,8 @@ export const evaluationsApi = {
     apiClient.post<EvaluationResponse>('/api/v1/evaluations/run', request),
   runBatch: (requests: EvaluationRequest[]) =>
     apiClient.post<EvaluationBatchResponse>('/api/v1/evaluations/batch', requests),
+  grounding: (request: GroundingRequest) =>
+    apiClient.post<GroundingResponse>('/api/v1/evaluations/grounding', request),
   history: (agentId: string, params?: { limit?: number; offset?: number }) =>
     apiClient.get<EvaluationHistoryItem[]>(`/api/v1/evaluations/agents/${agentId}/history`, params),
 };

@@ -9,6 +9,23 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 
+class GroundingSpec(BaseModel):
+    """Reference-grounded checks for hallucination-oriented evaluation.
+
+    The analyzer is intentionally transparent and heuristic: it measures lexical
+    support against supplied evidence rather than claiming to prove real-world truth.
+    """
+
+    enabled: bool = False
+    reference_context: str = Field(default="", max_length=200_000)
+    required_facts: List[str] = Field(default_factory=list, max_length=100)
+    forbidden_claims: List[str] = Field(default_factory=list, max_length=100)
+    answerable: bool = True
+    require_abstention_when_unanswerable: bool = True
+    min_sentence_overlap: float = Field(default=0.18, ge=0.0, le=1.0)
+    max_unsupported_sentences: int = Field(default=0, ge=0, le=100)
+
+
 class EvaluationScenario(BaseModel):
     """Executable subset of a generated scenario."""
 
@@ -18,6 +35,7 @@ class EvaluationScenario(BaseModel):
     expected_behavior: List[Dict[str, Any]] = Field(default_factory=list)
     validation_rules: List[Dict[str, Any]] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
+    grounding: GroundingSpec = Field(default_factory=GroundingSpec)
 
 
 class EvaluationRequest(BaseModel):
@@ -31,6 +49,41 @@ class EvaluationRequest(BaseModel):
     headers: Dict[str, str] = Field(default_factory=dict)
     input_field: str = Field(default="input", min_length=1, max_length=100)
     include_conversation: bool = True
+
+
+class GroundingRequest(BaseModel):
+    """Standalone groundedness check for an already-generated model answer."""
+
+    answer: str = Field(..., min_length=1, max_length=200_000)
+    reference_context: str = Field(..., min_length=1, max_length=200_000)
+    required_facts: List[str] = Field(default_factory=list, max_length=100)
+    forbidden_claims: List[str] = Field(default_factory=list, max_length=100)
+    answerable: bool = True
+    require_abstention_when_unanswerable: bool = True
+    min_sentence_overlap: float = Field(default=0.18, ge=0.0, le=1.0)
+    max_unsupported_sentences: int = Field(default=0, ge=0, le=100)
+
+
+class GroundingEvidence(BaseModel):
+    """Explainable evidence for one generated sentence."""
+
+    claim: str
+    evidence: Optional[str] = None
+    overlap: float = Field(..., ge=0.0, le=1.0)
+    supported: bool
+
+
+class GroundingResponse(BaseModel):
+    """Standalone groundedness result with explicit limitations."""
+
+    grounded: bool
+    score: float = Field(..., ge=0.0, le=1.0)
+    evidence: List[GroundingEvidence]
+    unsupported_sentences: List[str]
+    missing_required_facts: List[str]
+    forbidden_claims_detected: List[str]
+    abstention_ok: Optional[bool] = None
+    caveat: str
 
 
 class CheckResult(BaseModel):
