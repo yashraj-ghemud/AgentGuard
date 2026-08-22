@@ -1,80 +1,73 @@
 # AgentGuard
 
-**Automated Red-Teaming & Reliability Engineering for AI Agents**
+**AI-agent red-teaming, reliability testing, and groundedness checks**
 
-AgentGuard is a production-grade platform for testing, validating, and improving the reliability of AI agents through automated red-teaming, scenario generation, execution monitoring, and regression detection.
+AgentGuard is a modular platform for evaluating AI agents through adversarial scenarios, safe HTTP execution, deterministic behavior checks, regression comparison, and evidence-based groundedness analysis.
+
+> **Important limitation:** AgentGuard's groundedness check is a transparent heuristic that compares model output with evidence supplied by the caller. It does not prove real-world truth and should not be treated as a universal hallucination detector.
+
+## What You Can Test
+
+- Register and version AI agents and their tools.
+- Generate structured red-team scenarios from agent capabilities, risk profiles, and test strategy.
+- Execute scenarios against HTTP agent endpoints with SSRF/private-network protections, request limits, and timeouts.
+- Evaluate refusal, clarification, confirmation, tool-use, failure-reporting, text, regex, and JSON-field expectations.
+- Run evidence-based groundedness checks for unsupported claims, missing required facts, forbidden claims, and missing abstention.
+- Compare baseline and current reliability summaries for regression detection.
+- Export evaluation batches as JUnit XML or SARIF for CI/security workflows.
 
 ## Architecture
 
-AgentGuard follows a **modular monolith** architecture with strong boundaries between modules. Each module owns its domain, exposes clear contracts, and communicates through well-defined interfaces.
+AgentGuard uses a **modular monolith** with explicit boundaries between core services and feature modules.
 
-### Core Principles
-
-1. **Module Independence** - Modules can be developed, tested, and deployed independently
-2. **Stable Contracts** - Public interfaces remain backward compatible
-3. **Database Ownership** - Each module owns its tables; cross-module access through services only
-4. **Event-Driven** - Modules communicate through domain events
-5. **Provider Abstraction** - Business logic decoupled from vendor implementations
-
-## Project Structure
-
-```
+```text
 AgentGuard/
-├── Backend/               # Python FastAPI backend
-│   ├── core/             # Core platform (database, auth, config, events)
-│   ├── modules/          # Feature modules
-│   │   ├── agent_registry/
-│   │   ├── agent_versioning/
-│   │   ├── tool_registry/
-│   │   └── [future modules]/
-│   ├── shared/           # Shared types and utilities
-│   └── tests/            # Test suite
-├── Frontend/             # Next.js frontend
-│   ├── src/
-│   │   ├── modules/      # Feature-specific UI modules
-│   │   ├── core/         # Core UI components
-│   │   └── lib/          # Utilities and API clients
-├── docs/                 # Architecture and module documentation
-└── .github/              # CI/CD workflows
+├── Backend/                  # FastAPI backend
+│   ├── core/                # config, database, events, execution, LLM providers
+│   ├── modules/             # agent, risk, scenario, evaluation modules
+│   ├── shared/              # shared types and utilities
+│   └── tests/               # backend tests
+├── Frontend/                 # Next.js web console
+├── docs/                     # architecture, security, evaluation documentation
+├── docker-compose.yml
+└── .github/workflows/        # CI
 ```
 
-## Modules
+## Key API Endpoints
 
-### Part 1 - Foundation (Current)
+### Execute an evaluation
 
-- **MODULE 00** - Core Platform (database, auth, events, config)
-- **MODULE 01** - Agent Registry (CRUD for AI agents)
-- **MODULE 02** - Agent Versioning (immutable version snapshots)
-- **MODULE 03** - Tool Registry (tool definitions with risk profiles)
+`POST /api/v1/evaluations/run`
 
-### Part 2 - Scenario Intelligence
+Runs one scenario against an HTTP agent endpoint and returns an explainable set of checks.
 
-- **MODULE 04** - Agent Intelligence Engine
-- **MODULE 05** - Risk Analysis Engine
-- **MODULE 06** - Test Strategy Planner
-- **MODULE 07** - Scenario Generation Engine
+### Check groundedness
 
-### Part 3 - Execution and Reliability
+`POST /api/v1/evaluations/grounding`
 
-- **MODULE 08** - Safe HTTP Execution Provider
-- **MODULE 09** - Deterministic Evaluation Engine
-- **MODULE 10** - Reliability Scoring Engine
-- **MODULE 11** - Regression Detection Engine
+Example request:
 
-### Future Advanced Features
+```json
+{
+  "answer": "The system launched in 2025 and has 10 million users.",
+  "reference_context": "The system launched in 2025 for public testing.",
+  "required_facts": ["launched in 2025"],
+  "forbidden_claims": ["10 million users"],
+  "answerable": true
+}
+```
 
-- **MODULE 12** - Sandbox Engine
-- **MODULE 13** - Trace Engine
-- **MODULE 14** - Failure Classification Expansion
-- **MODULE 15** - Recommendation Engine
-- **MODULE 16** - Reporting Engine
-- **MODULE 17** - Scheduling Engine
-- **MODULE 18** - Browser Agent Adapter
-- **MODULE 19** - CI/CD Integration
-- **MODULE 20** - Notification System
-- **MODULE 21** - Workspace / Team Management
+The response includes a score, unsupported sentences, missing facts, forbidden claims, and a limitation/caveat.
 
-## Getting Started
+### Batch and regression APIs
+
+- `POST /api/v1/evaluations/batch`
+- `POST /api/v1/evaluations/compare`
+- `POST /api/v1/evaluations/export/junit`
+- `POST /api/v1/evaluations/export/sarif`
+- `GET /api/v1/evaluations/agents/{agent_id}/history`
+
+## Local Setup
 
 ### Prerequisites
 
@@ -82,121 +75,66 @@ AgentGuard/
 - Node.js 18+
 - PostgreSQL 15+
 - Redis 7+
-- Docker & Docker Compose
+- Docker and Docker Compose
 
-### Local Development
+### Start the stack
 
 ```bash
-# Clone repository
-git clone <repository-url>
+git clone https://github.com/yashraj-ghemud/AgentGuard.git
 cd AgentGuard
-
-# Start all services
+cp .env.example .env
 make dev
+```
 
-# Run tests
+The local API is available at `http://localhost:8000`; the FastAPI OpenAPI UI is at `http://localhost:8000/docs`.
+
+### Test and quality checks
+
+```bash
 make test
-
-# Run one scenario through the evaluation API after starting the backend
-# See docs/evaluation.md for the full request contract and regression workflow
-
-# Run linting
 make lint
-
-# Run type checking
 make typecheck
 ```
 
-### Environment Setup
-
-Copy `.env.example` to `.env` and configure:
+For the frontend:
 
 ```bash
-cp .env.example .env
-```
-
-Required environment variables:
-- `DATABASE_URL` - PostgreSQL connection string
-- `REDIS_URL` - Redis connection string
-- `SECRET_KEY` - Application secret key
-- `ENCRYPTION_KEY` - Data encryption key
-
-See `.env.example` for full list.
-
-## Git Workflow
-
-AgentGuard uses a strict branch-based workflow to maintain stability:
-
-- **main** - Production-ready code, always stable
-- **integration** - Integration testing before main merge
-- **feature/** - Feature development branches
-- **fix/** - Bug fix branches
-- **hotfix/** - Urgent production fixes
-
-See [docs/git-workflow.md](docs/git-workflow.md) for details.
-
-## Testing
-
-```bash
-# Backend tests
-cd Backend
-pytest
-
-# Frontend tests
 cd Frontend
+npm ci
+npm run type-check
+npm run build
 npm test
-
-# Integration tests
-make test-integration
-
-# Contract tests
-make test-contracts
 ```
 
-## API Documentation
+## Frontend Consoles
 
-API documentation is available at:
-- Development: http://localhost:8000/docs
-- Staging: https://staging-api.agentguard.io/docs
+The web UI exposes:
 
-See [docs/api-contracts.md](docs/api-contracts.md) for API specifications.
+- `/agents` for agent registration and management
+- `/evaluations` for HTTP-agent scenario evaluation
+- `/grounding` for standalone hallucination/groundedness checks
+- `/history` for persisted evaluation history
 
-## Documentation
+The frontend reads its backend URL from `NEXT_PUBLIC_API_URL`.
 
-- [Architecture Overview](docs/architecture.md)
-- [Module Boundaries](docs/module-boundaries.md)
-- [Git Workflow](docs/git-workflow.md)
-- [API Contracts](docs/api-contracts.md)
-- [Database Ownership](docs/database-ownership.md)
-- [Security Model](docs/security.md)
-- [Testing Strategy](docs/testing-strategy.md)
-- [Development Roadmap](docs/roadmap.md)
-- [Execution and Evaluation Workflow](docs/evaluation.md)
+## LLM Configuration
 
-## Security
+Scenario intelligence and generation use the configured LLM provider. The provider abstraction supports OpenAI and a mock provider for tests. Production/deployed environments must provide the required provider credentials; the mock provider is for development/testing and should not be presented as real model output.
 
-AgentGuard implements multiple security layers:
-- SSRF protection
-- Private network blocking
-- Request/response size limits
-- Timeout enforcement
-- Secret redaction
-- Input validation
+## Security Controls
 
-See [docs/security.md](docs/security.md) for details.
+The execution path includes SSRF protection, private/metadata network blocking, request/response limits, timeout enforcement, input validation, and secret/header redaction.
 
-## Contributing
+See [docs/security.md](docs/security.md) and [docs/evaluation.md](docs/evaluation.md).
 
-1. Create a feature branch from `main`
-2. Implement changes with tests
-3. Ensure all CI checks pass
-4. Create pull request to `integration`
-5. After integration tests pass, merge to `main`
+## Deployment
+
+A Render deployment manifest is provided in [`render.yaml`](render.yaml). Deployed URLs are intentionally configured through deployment settings rather than documented as permanent public endpoints in this README.
+
+## Project Status
+
+This repository is prepared as a hackathon project. The supported functionality is the code and tests present in the current branch; future modules are tracked separately and are not described here as implemented.
 
 ## License
 
-[License details to be added]
-
-## Support
-
-[Support information to be added]
+No license file is currently committed. Do not assume broad reuse rights unless a license is added.
